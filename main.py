@@ -5,6 +5,7 @@ import logging
 from solana.publickey import PublicKey
 import base64
 import struct
+import base58  # Required for base58 decoding/encoding
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +16,67 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # Solana Devnet RPC URL
 SOLANA_RPC_URL = "https://api.devnet.solana.com"
 METAPLEX_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"  # Metaplex Token Metadata Program ID
+
+def unpack_metadata_account(data):
+    """Unpack the metadata account using the provided schema."""
+    assert(data[0] == 4)  # Check Metaplex metadata version
+    i = 1
+    source_account = base58.b58encode(bytes(struct.unpack('<' + "B"*32, data[i:i+32]))).decode('utf-8')
+    i += 32
+    mint_account = base58.b58encode(bytes(struct.unpack('<' + "B"*32, data[i:i+32]))).decode('utf-8')
+    i += 32
+    name_len = struct.unpack('<I', data[i:i+4])[0]
+    i += 4
+    name = struct.unpack('<' + "B"*name_len, data[i:i+name_len])
+    i += name_len
+    symbol_len = struct.unpack('<I', data[i:i+4])[0]
+    i += 4
+    symbol = struct.unpack('<' + "B"*symbol_len, data[i:i+symbol_len])
+    i += symbol_len
+    uri_len = struct.unpack('<I', data[i:i+4])[0]
+    i += 4 
+    uri = struct.unpack('<' + "B"*uri_len, data[i:i+uri_len])
+    i += uri_len
+    fee = struct.unpack('<h', data[i:i+2])[0]
+    i += 2
+    has_creator = data[i] 
+    i += 1
+    creators = []
+    verified = []
+    share = []
+    if has_creator:
+        creator_len = struct.unpack('<I', data[i:i+4])[0]
+        i += 4
+        for _ in range(creator_len):
+            creator = base58.b58encode(bytes(struct.unpack('<' + "B"*32, data[i:i+32]))).decode('utf-8')
+            creators.append(creator)
+            i += 32
+            verified.append(data[i])
+            i += 1
+            share.append(data[i])
+            i += 1
+    primary_sale_happened = bool(data[i])
+    i += 1
+    is_mutable = bool(data[i])
+    
+    # Construct the metadata object
+    metadata = {
+        "update_authority": source_account,
+        "mint": mint_account,
+        "data": {
+            "name": bytes(name).decode("utf-8").strip("\x00"),
+            "symbol": bytes(symbol).decode("utf-8").strip("\x00"),
+            "uri": bytes(uri).decode("utf-8").strip("\x00"),
+            "seller_fee_basis_points": fee,
+            "creators": creators,
+            "verified": verified,
+            "share": share,
+        },
+        "primary_sale_happened": primary_sale_happened,
+        "is_mutable": is_mutable,
+    }
+    return metadata
+
 
 def fetch_nfts(wallet_address):
     """Fetch NFTs stored in a Solana wallet on Devnet."""
@@ -74,8 +136,8 @@ def fetch_metaplex_metadata(mint_address):
             metadata_base64 = account_info['result']['value']['data'][0]
             metadata_bytes = base64.b64decode(metadata_base64)
 
-            # Parsing the metadata based on Metaplex Token Metadata schema
-            parsed_metadata = parse_metadata(metadata_bytes)
+            # Parsing the metadata using unpack_metadata_account function
+            parsed_metadata = unpack_metadata_account(metadata_bytes)
             return parsed_metadata
         else:
             logging.warning(f"No metadata found for mint {mint_address}.")
@@ -84,36 +146,7 @@ def fetch_metaplex_metadata(mint_address):
     except Exception as e:
         logging.error(f"Error fetching Metaplex metadata for mint {mint_address}: {e}")
         return None
-    
-def parse_metadata(metadata_bytes):
-    """Parses the binary Metaplex metadata."""
-    try:
-        # Example offsets for Metaplex metadata (adjust these based on the schema)
-        name_length_offset = 32  # Start of the name length (4 bytes)
-        name_start_offset = 36   # Start of the name string
-        uri_length_offset = 68   # Adjust based on actual schema for URI length
-        uri_start_offset = 72    # Adjust based on actual schema for URI string
-        
-        # Read name length and name
-        name_length = struct.unpack("<I", metadata_bytes[name_length_offset:name_length_offset+4])[0]
-        name = metadata_bytes[name_start_offset:name_start_offset+name_length].decode('utf-8', errors='ignore').strip()
-        
-        # Read URI length and URI (adjust the offsets based on the actual layout)
-        uri_length = struct.unpack("<I", metadata_bytes[uri_length_offset:uri_length_offset+4])[0]
-        uri = metadata_bytes[uri_start_offset:uri_start_offset+uri_length].decode('utf-8', errors='ignore').strip()
 
-        # Ensure data is cleaned up by stripping null characters or other padding
-        name = name.replace('\x00', '')
-        uri = uri.replace('\x00', '')
-
-        return {
-            'name': name,
-            'uri': uri
-        }
-    
-    except Exception as e:
-        logging.error(f"Error parsing metadata: {e}")
-        return None
 
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
@@ -145,6 +178,7 @@ def get_nfts():
     except Exception as e:
         logging.error(f"Error processing request for wallet {wallet_address}: {str(e)}")
         return jsonify({'error': 'Error fetching NFTs'}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
