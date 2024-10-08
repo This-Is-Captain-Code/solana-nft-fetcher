@@ -22,7 +22,8 @@ def fetch_nfts(wallet_address):
         "method": "getTokenAccountsByOwner",
         "params": [
             wallet_address,  # Use the original Base58 address here
-            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}
+            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+            {"encoding": "jsonParsed"}
         ]
     }
     headers = {"Content-Type": "application/json"}
