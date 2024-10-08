@@ -2,7 +2,6 @@ from flask import Flask, jsonify, request
 import requests
 from flask_cors import CORS
 import logging
-from solana.rpc.async_api import AsyncClient
 from solana.publickey import PublicKey
 import base64
 import struct
@@ -16,7 +15,6 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # Solana Devnet RPC URL
 SOLANA_RPC_URL = "https://api.devnet.solana.com"
 METAPLEX_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"  # Metaplex Token Metadata Program ID
-
 
 def fetch_nfts(wallet_address):
     """Fetch NFTs stored in a Solana wallet on Devnet."""
@@ -93,15 +91,20 @@ def parse_metadata(metadata_bytes):
     name_length = struct.unpack("<I", metadata_bytes[32:36])[0]
     name = metadata_bytes[36:36+name_length].decode('utf-8', errors='ignore')
 
-    # Continue parsing other fields like URI, symbol, etc.
-    uri_length = struct.unpack("<I", metadata_bytes[68:72])[0]  # Adjust offset accordingly
-    uri = metadata_bytes[72:72+uri_length].decode('utf-8', errors='ignore')
+    # Parsing URI and other fields (this will vary based on the Metaplex structure)
+    uri_offset = 68  # Example offset for URI, adjust as needed
+    uri_length = struct.unpack("<I", metadata_bytes[uri_offset:uri_offset+4])[0]
+    uri = metadata_bytes[uri_offset+4:uri_offset+4+uri_length].decode('utf-8', errors='ignore')
+
+    # Example for creators, seller fee, etc.
+    seller_fee_basis_points = struct.unpack("<H", metadata_bytes[104:106])[0]  # Adjust based on your actual structure
 
     return {
         'name': name,
-        'uri': uri
+        'uri': uri,
+        'sellerFeeBasisPoints': seller_fee_basis_points,
+        # Add creators, symbol, and other fields as needed
     }
-
 
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
