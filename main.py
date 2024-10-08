@@ -4,6 +4,7 @@ from flask_cors import CORS
 import logging
 from solana.rpc.async_api import AsyncClient
 from solana.publickey import PublicKey
+import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +25,7 @@ def fetch_nfts(wallet_address):
         "id": 1,
         "method": "getTokenAccountsByOwner",
         "params": [
-            wallet_address,  # Use the original Base58 address here
+            wallet_address,
             {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
             {"encoding": "jsonParsed"}
         ]
@@ -37,13 +38,12 @@ def fetch_nfts(wallet_address):
         logging.info(f"Response from Solana API: {response.json()}")
         return response.json()
     except Exception as e:
-        logging.error(f"Error fetching NFTs: {e}")
+        logging.error(f"Error fetching NFTs for wallet {wallet_address}: {e}")
         return None
 
 
 def fetch_metaplex_metadata(mint_address):
     """Fetch metadata for an NFT using Metaplex Token Metadata Program."""
-    # Derive the metadata account address from the mint address
     try:
         mint_pubkey = PublicKey(mint_address)
         metadata_pubkey = PublicKey.find_program_address(
@@ -68,11 +68,18 @@ def fetch_metaplex_metadata(mint_address):
         response.raise_for_status()
 
         account_info = response.json()
-        logging.info(f"Metadata response: {account_info}")
-        return account_info['result']['value']['data'] if account_info.get('result') else None
+        logging.info(f"Metadata response for mint {mint_address}: {account_info}")
+
+        # Decode base64 metadata if available
+        if account_info.get('result') and 'data' in account_info['result']['value']:
+            metadata_base64 = account_info['result']['value']['data'][0]
+            decoded_metadata = base64.b64decode(metadata_base64).decode('utf-8')
+            return decoded_metadata
+        else:
+            return None
 
     except Exception as e:
-        logging.error(f"Error fetching Metaplex metadata: {e}")
+        logging.error(f"Error fetching Metaplex metadata for mint {mint_address}: {e}")
         return None
 
 
@@ -104,7 +111,7 @@ def get_nfts():
         })
 
     except Exception as e:
-        logging.error(f"Error processing request: {str(e)}")
+        logging.error(f"Error processing request for wallet {wallet_address}: {str(e)}")
         return jsonify({'error': 'Error fetching NFTs'}), 500
 
 if __name__ == '__main__':
