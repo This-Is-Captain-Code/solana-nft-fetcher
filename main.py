@@ -5,6 +5,7 @@ import logging
 from solana.rpc.async_api import AsyncClient
 from solana.publickey import PublicKey
 import base64
+import struct
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -73,8 +74,11 @@ def fetch_metaplex_metadata(mint_address):
         # Decode base64 metadata if available
         if account_info.get('result') and account_info['result']['value']:
             metadata_base64 = account_info['result']['value']['data'][0]
-            decoded_metadata = base64.b64decode(metadata_base64).decode('utf-8')
-            return decoded_metadata
+            metadata_bytes = base64.b64decode(metadata_base64)
+
+            # Parsing the metadata based on Metaplex Token Metadata schema
+            parsed_metadata = parse_metadata(metadata_bytes)
+            return parsed_metadata
         else:
             logging.warning(f"No metadata found for mint {mint_address}.")
             return None
@@ -82,6 +86,21 @@ def fetch_metaplex_metadata(mint_address):
     except Exception as e:
         logging.error(f"Error fetching Metaplex metadata for mint {mint_address}: {e}")
         return None
+    
+def parse_metadata(metadata_bytes):
+    """Parses the binary Metaplex metadata."""
+    # Example of basic parsing (you would adjust based on the Metaplex schema)
+    name_length = struct.unpack("<I", metadata_bytes[32:36])[0]
+    name = metadata_bytes[36:36+name_length].decode('utf-8', errors='ignore')
+
+    # Continue parsing other fields like URI, symbol, etc.
+    uri_length = struct.unpack("<I", metadata_bytes[68:72])[0]  # Adjust offset accordingly
+    uri = metadata_bytes[72:72+uri_length].decode('utf-8', errors='ignore')
+
+    return {
+        'name': name,
+        'uri': uri
+    }
 
 
 @app.route('/get_nfts', methods=['GET'])
