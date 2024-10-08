@@ -1,44 +1,42 @@
-from flask import Flask, jsonify, request
-import requests
-from flask_cors import CORS
-import logging
-import base64
+import base58
+from solana.rpc.api import Client
+from solana.publickey import PublicKey
+from solana.rpc.types import MemcmpOpts
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
 
-app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+# Function to derive the metadata address
+def get_metadata_pda(mint_address):
+    mint_publickey = PublicKey(mint_address)
+    metadata_seed = [
+        b'metadata',
+        PublicKey(METADATA_PROGRAM_ID).to_bytes(),
+        mint_publickey.to_bytes(),
+    ]
+    metadata_pda, _ = PublicKey.find_program_address(metadata_seed, PublicKey(METADATA_PROGRAM_ID))
+    return metadata_pda
 
-# Solana Devnet RPC URL
-SOLANA_RPC_URL = "https://api.devnet.solana.com"
-
-def fetch_nfts(wallet_address):
-    """Fetch NFTs stored in a Solana wallet on Devnet."""
-    url = f"{SOLANA_RPC_URL}"
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getTokenAccountsByOwner",
-        "params": [
-            wallet_address,  # Use the original Base58 address here
-            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
-            {"encoding": "jsonParsed"}
-        ]
-    }
-    headers = {"Content-Type": "application/json"}
-    
+# Fetch Metaplex metadata using the metadata address
+def fetch_metaplex_metadata(mint_address):
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()  # Raise an error for bad responses
-        logging.info(f"Response from Solana API: {response.json()}")
-        return response.json()
+        metadata_pda = get_metadata_pda(mint_address)
+        client = Client(SOLANA_RPC_URL)
+        metadata_account_info = client.get_account_info(metadata_pda)
+
+        if not metadata_account_info or 'result' not in metadata_account_info:
+            logging.error(f"No metadata found for mint address: {mint_address}")
+            return None
+
+        metadata_data = metadata_account_info['result']['value']['data']
+        metadata_decoded = base58.b58decode(metadata_data).decode('utf-8')
+        
+        logging.info(f"Metadata for mint {mint_address}: {metadata_decoded}")
+        return metadata_decoded
     except Exception as e:
-        logging.error(f"Error fetching NFTs: {e}")
+        logging.error(f"Error fetching Metaplex metadata: {str(e)}")
         return None
 
-
-
+# Extend the current Flask endpoint
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
     """API endpoint to get NFTs stored in a Solana Devnet wallet."""
@@ -56,7 +54,13 @@ def get_nfts():
         nfts = []
         for nft in nfts_response['result']['value']:
             mint_address = nft['account']['data']['parsed']['info']['mint']
-            nfts.append({'mint': mint_address})
+            
+            # Fetch Metaplex metadata for each mint address
+            metadata = fetch_metaplex_metadata(mint_address)
+            nfts.append({
+                'mint': mint_address,
+                'metadata': metadata
+            })
 
         return jsonify({
             'wallet': wallet_address,
@@ -66,6 +70,3 @@ def get_nfts():
     except Exception as e:
         logging.error(f"Error processing request: {str(e)}")
         return jsonify({'error': 'Error fetching NFTs'}), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
