@@ -46,10 +46,10 @@ def fetch_metaplex_metadata(mint_address):
     """Fetch metadata for an NFT using Metaplex Token Metadata Program."""
     try:
         mint_pubkey = PublicKey(mint_address)
-        metadata_pubkey = PublicKey.find_program_address(
+        metadata_pubkey, _ = PublicKey.find_program_address(
             [b'metadata', bytes(PublicKey(METAPLEX_PROGRAM_ID)), bytes(mint_pubkey)],
             PublicKey(METAPLEX_PROGRAM_ID)
-        )[0]
+        )
 
         # Prepare request payload to get account info
         payload = {
@@ -71,11 +71,12 @@ def fetch_metaplex_metadata(mint_address):
         logging.info(f"Metadata response for mint {mint_address}: {account_info}")
 
         # Decode base64 metadata if available
-        if account_info.get('result') and 'data' in account_info['result']['value']:
+        if account_info.get('result') and account_info['result']['value']:
             metadata_base64 = account_info['result']['value']['data'][0]
             decoded_metadata = base64.b64decode(metadata_base64).decode('utf-8')
             return decoded_metadata
         else:
+            logging.warning(f"No metadata found for mint {mint_address}.")
             return None
 
     except Exception as e:
