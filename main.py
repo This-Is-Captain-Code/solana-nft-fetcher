@@ -46,43 +46,43 @@ async def get_nfts_from_wallet(wallet_address):
             logging.error(f"Error fetching NFTs: {e}")
             return []
 
-async def fetch_nft_metadata(mint_address):
-    """Fetch NFT metadata using the Metaplex API or a custom API."""
-    try:
-        url = f"{METAPLEX_API_URL}/nfts/{mint_address}/metadata"
-        response = requests.get(url)
-        
-        if response.status_code == 200:
-            metadata = response.json()
+async def get_nfts_from_wallet(wallet_address):
+    """Fetch NFTs stored in a Solana wallet on Devnet."""
+    async with AsyncClient(SOLANA_RPC_URL) as client:
+        try:
+            logging.info(f"Fetching NFTs for wallet: {wallet_address}")
+            public_key = PublicKey(wallet_address)
 
-            # Extract data from the metadata response
-            nft_data = metadata.get('data', {})
-            name = nft_data.get('name', 'Unnamed NFT')
-            uri = nft_data.get('uri', '')  # The URL pointing to the actual NFT (could be the 3D model in this case)
-            creators = nft_data.get('creators', [])
-            seller_fee = nft_data.get('sellerFeeBasisPoints', 0)
+            # Get token accounts by owner (wallet) and filter by the Token Program ID for SPL tokens
+            response = await client.get_token_accounts_by_owner(
+                public_key,
+                {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}
+            )
 
-            # Construct a response object for the NFT
-            nft_info = {
-                'name': name,
-                'mint': metadata.get('mint', mint_address),  # Mint address
-                'updateAuthority': metadata.get('updateAuthority', ''),
-                'uri': uri,  # Could be a link to download the 3D model
-                'sellerFeeBasisPoints': seller_fee,
-                'creators': creators,
-                'primarySaleHappened': metadata.get('primarySaleHappened', 0),
-                'isMutable': metadata.get('isMutable', 1),
-                'tokenStandard': metadata.get('tokenStandard', 0)
-            }
+            # Extract token accounts from the response
+            token_accounts = response.get('result', {}).get('value', [])
+
+            if not token_accounts:
+                logging.info(f"No token accounts found for wallet: {wallet_address}")
+                return []
+
+            nfts = []
+            for account in token_accounts:
+                account_info = account['account']['data']['parsed']['info']
+                mint_address = account_info.get('mint')
+
+                if mint_address:
+                    logging.info(f"Processing mint address: {mint_address}")
+                    # Fetch NFT metadata using the Metaplex API or similar
+                    nft_metadata = await fetch_nft_metadata(mint_address)
+                    if nft_metadata:
+                        nfts.append(nft_metadata)
             
-            return nft_info
-        else:
-            logging.error(f"Error fetching metadata for mint: {mint_address}, status code: {response.status_code}")
-            return None
+            return nfts
 
-    except Exception as e:
-        logging.error(f"Error fetching metadata: {e}")
-        return None
+        except Exception as e:
+            logging.error(f"Error fetching NFTs: {e}")
+            return []
 
 
 @app.route('/get_nfts', methods=['GET'])
