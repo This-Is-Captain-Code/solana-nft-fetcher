@@ -2,12 +2,8 @@ from flask import Flask, jsonify, request
 import requests
 from flask_cors import CORS
 import logging
-import base64
-from solana.publickey import PublicKey
-from solana.rpc.api import Client
 from solana.rpc.async_api import AsyncClient
-from solana.rpc.commitment import Confirmed
-import base58
+from solana.publickey import PublicKey
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,13 +13,12 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Solana Devnet RPC URL
 SOLANA_RPC_URL = "https://api.devnet.solana.com"
-METAPLEX_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"  # Metaplex Metadata program ID
+METAPLEX_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"  # Metaplex Token Metadata Program ID
 
-client = Client(SOLANA_RPC_URL)
 
 def fetch_nfts(wallet_address):
     """Fetch NFTs stored in a Solana wallet on Devnet."""
-    url = f"{SOLANA_RPC_URL}"
+    url = SOLANA_RPC_URL
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -45,60 +40,41 @@ def fetch_nfts(wallet_address):
         logging.error(f"Error fetching NFTs: {e}")
         return None
 
-def get_metadata_account(mint_address):
-    """Derive the metadata account associated with the NFT's mint address."""
-    seed = [
-        b"metadata",
-        PublicKey(METAPLEX_PROGRAM_ID).to_bytes(),
-        PublicKey(mint_address).to_bytes()
-    ]
-    metadata_pubkey = PublicKey.find_program_address(seed, PublicKey(METAPLEX_PROGRAM_ID))[0]
-    return str(metadata_pubkey)
 
-def fetch_metadata(mint_address):
-    """Fetch Metaplex metadata for the given mint address."""
-    metadata_account = get_metadata_account(mint_address)
-    
-    url = f"{SOLANA_RPC_URL}"
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getAccountInfo",
-        "params": [
-            metadata_account,
-            {"encoding": "base64"}
-        ]
-    }
-    headers = {"Content-Type": "application/json"}
-    
+def fetch_metaplex_metadata(mint_address):
+    """Fetch metadata for an NFT using Metaplex Token Metadata Program."""
+    # Derive the metadata account address from the mint address
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        mint_pubkey = PublicKey(mint_address)
+        metadata_pubkey = PublicKey.find_program_address(
+            [b'metadata', bytes(PublicKey(METAPLEX_PROGRAM_ID)), bytes(mint_pubkey)],
+            PublicKey(METAPLEX_PROGRAM_ID)
+        )[0]
+
+        # Prepare request payload to get account info
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getAccountInfo",
+            "params": [
+                str(metadata_pubkey),
+                {"encoding": "base64"}
+            ]
+        }
+        headers = {"Content-Type": "application/json"}
+        
+        # Make the request
+        response = requests.post(SOLANA_RPC_URL, json=payload, headers=headers)
         response.raise_for_status()
-        result = response.json()['result']['value']
-        if result:
-            account_data = base64.b64decode(result['data'][0])
-            logging.info(f"Metadata account raw data: {account_data}")
-            # Parse the account data into meaningful Metaplex metadata fields
-            return decode_metadata(account_data)
-        else:
-            logging.warning(f"No metadata found for mint: {mint_address}")
-            return None
+
+        account_info = response.json()
+        logging.info(f"Metadata response: {account_info}")
+        return account_info['result']['value']['data'] if account_info.get('result') else None
+
     except Exception as e:
-        logging.error(f"Error fetching metadata: {e}")
+        logging.error(f"Error fetching Metaplex metadata: {e}")
         return None
 
-def decode_metadata(account_data):
-    """Decode the raw metadata into structured data."""
-    # You'll need to implement the decoding here. You can use Metaplex libraries
-    # or custom code to parse the fields like name, uri, symbol, creators, etc.
-    # For now, we'll return a placeholder.
-    metadata = {
-        'name': 'Placeholder name',
-        'uri': 'Placeholder URI',
-        'symbol': 'Placeholder symbol',
-        # Add more fields as needed
-    }
-    return metadata
 
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
@@ -117,7 +93,9 @@ def get_nfts():
         nfts = []
         for nft in nfts_response['result']['value']:
             mint_address = nft['account']['data']['parsed']['info']['mint']
-            metadata = fetch_metadata(mint_address)
+
+            # Fetch Metaplex metadata for the NFT
+            metadata = fetch_metaplex_metadata(mint_address)
             nfts.append({'mint': mint_address, 'metadata': metadata})
 
         return jsonify({
