@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 import requests
 from flask_cors import CORS
 import logging
+import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,13 +15,16 @@ SOLANA_RPC_URL = "https://api.devnet.solana.com"
 
 def fetch_nfts(wallet_address):
     """Fetch NFTs stored in a Solana wallet on Devnet."""
+    # Convert the wallet address to Base64 encoding
+    base64_wallet_address = base64.b64encode(wallet_address.encode()).decode()
+    
     url = f"{SOLANA_RPC_URL}"
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "getTokenAccountsByOwner",
         "params": [
-            wallet_address,
+            base64_wallet_address,  # Use the Base64 encoded address here
             {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}
         ]
     }
