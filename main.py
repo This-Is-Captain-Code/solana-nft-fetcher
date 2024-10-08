@@ -51,15 +51,39 @@ async def fetch_nft_metadata(mint_address):
     try:
         url = f"{METAPLEX_API_URL}/nfts/{mint_address}/metadata"
         response = requests.get(url)
+        
         if response.status_code == 200:
             metadata = response.json()
-            return metadata
+
+            # Extract data from the metadata response
+            nft_data = metadata.get('data', {})
+            name = nft_data.get('name', 'Unnamed NFT')
+            uri = nft_data.get('uri', '')  # The URL pointing to the actual NFT (could be the 3D model in this case)
+            creators = nft_data.get('creators', [])
+            seller_fee = nft_data.get('sellerFeeBasisPoints', 0)
+
+            # Construct a response object for the NFT
+            nft_info = {
+                'name': name,
+                'mint': metadata.get('mint', mint_address),  # Mint address
+                'updateAuthority': metadata.get('updateAuthority', ''),
+                'uri': uri,  # Could be a link to download the 3D model
+                'sellerFeeBasisPoints': seller_fee,
+                'creators': creators,
+                'primarySaleHappened': metadata.get('primarySaleHappened', 0),
+                'isMutable': metadata.get('isMutable', 1),
+                'tokenStandard': metadata.get('tokenStandard', 0)
+            }
+            
+            return nft_info
         else:
-            logging.error(f"Error fetching metadata for mint: {mint_address}")
+            logging.error(f"Error fetching metadata for mint: {mint_address}, status code: {response.status_code}")
             return None
+
     except Exception as e:
         logging.error(f"Error fetching metadata: {e}")
         return None
+
 
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
