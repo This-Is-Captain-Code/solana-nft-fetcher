@@ -21,8 +21,7 @@ def fetch_nfts(wallet_address):
         "method": "getTokenAccountsByOwner",
         "params": [
             wallet_address,
-            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
-            {"encoding": "jsonParsed"}
+            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}
         ]
     }
     headers = {"Content-Type": "application/json"}
@@ -30,10 +29,12 @@ def fetch_nfts(wallet_address):
     try:
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()  # Raise an error for bad responses
+        logging.info(f"Response from Solana API: {response.json()}")
         return response.json()
     except Exception as e:
         logging.error(f"Error fetching NFTs: {e}")
         return None
+
 
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
