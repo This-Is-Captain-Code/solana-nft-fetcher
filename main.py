@@ -87,24 +87,33 @@ def fetch_metaplex_metadata(mint_address):
     
 def parse_metadata(metadata_bytes):
     """Parses the binary Metaplex metadata."""
-    # Example of basic parsing (you would adjust based on the Metaplex schema)
-    name_length = struct.unpack("<I", metadata_bytes[32:36])[0]
-    name = metadata_bytes[36:36+name_length].decode('utf-8', errors='ignore')
+    try:
+        # Example offsets for Metaplex metadata (adjust these based on the schema)
+        name_length_offset = 32  # Start of the name length (4 bytes)
+        name_start_offset = 36   # Start of the name string
+        uri_length_offset = 68   # Adjust based on actual schema for URI length
+        uri_start_offset = 72    # Adjust based on actual schema for URI string
+        
+        # Read name length and name
+        name_length = struct.unpack("<I", metadata_bytes[name_length_offset:name_length_offset+4])[0]
+        name = metadata_bytes[name_start_offset:name_start_offset+name_length].decode('utf-8', errors='ignore').strip()
+        
+        # Read URI length and URI (adjust the offsets based on the actual layout)
+        uri_length = struct.unpack("<I", metadata_bytes[uri_length_offset:uri_length_offset+4])[0]
+        uri = metadata_bytes[uri_start_offset:uri_start_offset+uri_length].decode('utf-8', errors='ignore').strip()
 
-    # Parsing URI and other fields (this will vary based on the Metaplex structure)
-    uri_offset = 68  # Example offset for URI, adjust as needed
-    uri_length = struct.unpack("<I", metadata_bytes[uri_offset:uri_offset+4])[0]
-    uri = metadata_bytes[uri_offset+4:uri_offset+4+uri_length].decode('utf-8', errors='ignore')
+        # Ensure data is cleaned up by stripping null characters or other padding
+        name = name.replace('\x00', '')
+        uri = uri.replace('\x00', '')
 
-    # Example for creators, seller fee, etc.
-    seller_fee_basis_points = struct.unpack("<H", metadata_bytes[104:106])[0]  # Adjust based on your actual structure
-
-    return {
-        'name': name,
-        'uri': uri,
-        'sellerFeeBasisPoints': seller_fee_basis_points,
-        # Add creators, symbol, and other fields as needed
-    }
+        return {
+            'name': name,
+            'uri': uri
+        }
+    
+    except Exception as e:
+        logging.error(f"Error parsing metadata: {e}")
+        return None
 
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
