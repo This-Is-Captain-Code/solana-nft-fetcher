@@ -1,42 +1,105 @@
-import base58
-from solana.rpc.api import Client
+from flask import Flask, jsonify, request
+import requests
+from flask_cors import CORS
+import logging
+import base64
 from solana.publickey import PublicKey
-from solana.rpc.types import MemcmpOpts
+from solana.rpc.api import Client
+from solana.rpc.async_api import AsyncClient
+from solana.rpc.commitment import Confirmed
+import base58
 
-METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
-# Function to derive the metadata address
-def get_metadata_pda(mint_address):
-    mint_publickey = PublicKey(mint_address)
-    metadata_seed = [
-        b'metadata',
-        PublicKey(METADATA_PROGRAM_ID).to_bytes(),
-        mint_publickey.to_bytes(),
-    ]
-    metadata_pda, _ = PublicKey.find_program_address(metadata_seed, PublicKey(METADATA_PROGRAM_ID))
-    return metadata_pda
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Fetch Metaplex metadata using the metadata address
-def fetch_metaplex_metadata(mint_address):
+# Solana Devnet RPC URL
+SOLANA_RPC_URL = "https://api.devnet.solana.com"
+METAPLEX_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"  # Metaplex Metadata program ID
+
+client = Client(SOLANA_RPC_URL)
+
+def fetch_nfts(wallet_address):
+    """Fetch NFTs stored in a Solana wallet on Devnet."""
+    url = f"{SOLANA_RPC_URL}"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getTokenAccountsByOwner",
+        "params": [
+            wallet_address,  # Use the original Base58 address here
+            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+            {"encoding": "jsonParsed"}
+        ]
+    }
+    headers = {"Content-Type": "application/json"}
+    
     try:
-        metadata_pda = get_metadata_pda(mint_address)
-        client = Client(SOLANA_RPC_URL)
-        metadata_account_info = client.get_account_info(metadata_pda)
-
-        if not metadata_account_info or 'result' not in metadata_account_info:
-            logging.error(f"No metadata found for mint address: {mint_address}")
-            return None
-
-        metadata_data = metadata_account_info['result']['value']['data']
-        metadata_decoded = base58.b58decode(metadata_data).decode('utf-8')
-        
-        logging.info(f"Metadata for mint {mint_address}: {metadata_decoded}")
-        return metadata_decoded
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()  # Raise an error for bad responses
+        logging.info(f"Response from Solana API: {response.json()}")
+        return response.json()
     except Exception as e:
-        logging.error(f"Error fetching Metaplex metadata: {str(e)}")
+        logging.error(f"Error fetching NFTs: {e}")
         return None
 
-# Extend the current Flask endpoint
+def get_metadata_account(mint_address):
+    """Derive the metadata account associated with the NFT's mint address."""
+    seed = [
+        b"metadata",
+        PublicKey(METAPLEX_PROGRAM_ID).to_bytes(),
+        PublicKey(mint_address).to_bytes()
+    ]
+    metadata_pubkey = PublicKey.find_program_address(seed, PublicKey(METAPLEX_PROGRAM_ID))[0]
+    return str(metadata_pubkey)
+
+def fetch_metadata(mint_address):
+    """Fetch Metaplex metadata for the given mint address."""
+    metadata_account = get_metadata_account(mint_address)
+    
+    url = f"{SOLANA_RPC_URL}"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getAccountInfo",
+        "params": [
+            metadata_account,
+            {"encoding": "base64"}
+        ]
+    }
+    headers = {"Content-Type": "application/json"}
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()['result']['value']
+        if result:
+            account_data = base64.b64decode(result['data'][0])
+            logging.info(f"Metadata account raw data: {account_data}")
+            # Parse the account data into meaningful Metaplex metadata fields
+            return decode_metadata(account_data)
+        else:
+            logging.warning(f"No metadata found for mint: {mint_address}")
+            return None
+    except Exception as e:
+        logging.error(f"Error fetching metadata: {e}")
+        return None
+
+def decode_metadata(account_data):
+    """Decode the raw metadata into structured data."""
+    # You'll need to implement the decoding here. You can use Metaplex libraries
+    # or custom code to parse the fields like name, uri, symbol, creators, etc.
+    # For now, we'll return a placeholder.
+    metadata = {
+        'name': 'Placeholder name',
+        'uri': 'Placeholder URI',
+        'symbol': 'Placeholder symbol',
+        # Add more fields as needed
+    }
+    return metadata
+
 @app.route('/get_nfts', methods=['GET'])
 def get_nfts():
     """API endpoint to get NFTs stored in a Solana Devnet wallet."""
@@ -54,13 +117,8 @@ def get_nfts():
         nfts = []
         for nft in nfts_response['result']['value']:
             mint_address = nft['account']['data']['parsed']['info']['mint']
-            
-            # Fetch Metaplex metadata for each mint address
-            metadata = fetch_metaplex_metadata(mint_address)
-            nfts.append({
-                'mint': mint_address,
-                'metadata': metadata
-            })
+            metadata = fetch_metadata(mint_address)
+            nfts.append({'mint': mint_address, 'metadata': metadata})
 
         return jsonify({
             'wallet': wallet_address,
@@ -70,3 +128,6 @@ def get_nfts():
     except Exception as e:
         logging.error(f"Error processing request: {str(e)}")
         return jsonify({'error': 'Error fetching NFTs'}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)

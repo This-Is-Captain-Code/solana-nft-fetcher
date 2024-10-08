@@ -4,5 +4,6 @@ objaverse
 flask-cors==3.0.10
 pandas==2.1.1
 numpy==1.25.0
-solana==0.28.1  # Add solana-py for Solana interaction
-requests==2.31.0  # To make HTTP requests for NFT metadata
+solana==0.28.1  # Solana Python SDK for interacting with Solana blockchain
+requests==2.31.0  # HTTP requests library for Solana RPC calls
+base58==2.1.1  # Needed for Solana address encoding
